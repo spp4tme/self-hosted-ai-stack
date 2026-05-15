@@ -2,7 +2,10 @@
 
 > Stack IA locale complète, souveraine et extensible — tournant sur Windows 11 + Docker Desktop (WSL2) avec GPU NVIDIA RTX 5070 Ti.
 
-Jarvis est un écosystème IA self-hosted qui regroupe : un proxy LLM unifié, des agents intelligents, une mémoire long terme, de la vision multimodale, un sandbox d'exécution de code, du fine-tuning LoRA, un contrôle PC par gestes, et un assistant CLI type Claude Code — le tout orchestré localement, sans aucun cloud obligatoire.
+[![CI](https://github.com/spp4tme/self-hosted-ai-stack/actions/workflows/ci.yml/badge.svg)](https://github.com/spp4tme/self-hosted-ai-stack/actions/workflows/ci.yml)
+[![Security](https://github.com/spp4tme/self-hosted-ai-stack/actions/workflows/security.yml/badge.svg)](https://github.com/spp4tme/self-hosted-ai-stack/actions/workflows/security.yml)
+
+Jarvis est un écosystème IA self-hosted qui regroupe : un proxy LLM unifié, des agents intelligents collaboratifs (CrewAI), une mémoire long terme, de la vision multimodale, un sandbox d'exécution de code, du fine-tuning LoRA, un contrôle PC par gestes, un assistant CLI type Claude Code, un reverse proxy Traefik, un CI/CD GitHub Actions, et un GitOps webhook — le tout orchestré localement, sans aucun cloud obligatoire.
 
 ---
 
@@ -16,6 +19,9 @@ Jarvis est un écosystème IA self-hosted qui regroupe : un proxy LLM unifié, d
 - [Démarrage rapide](#démarrage-rapide)
 - [Configuration](#configuration)
 - [Agents IA](#agents-ia)
+- [Traefik — Reverse Proxy](#traefik--reverse-proxy)
+- [CI/CD GitHub Actions](#cicd-github-actions)
+- [GitOps Webhook](#gitops-webhook)
 - [API Reference](#api-reference)
 - [Fine-tuning](#fine-tuning)
 - [Tests](#tests)
@@ -592,6 +598,154 @@ self-hosted-ai-stack/
 ├── scripts/                       # Scripts utilitaires (start, stop, restart)
 └── tests/                         # Tests pytest (27 tests)
 ```
+
+---
+
+---
+
+## Traefik — Reverse Proxy
+
+Traefik remplace Caddy comme reverse proxy. Il découvre automatiquement les services via les labels Docker — aucune config manuelle à chaque ajout de service.
+
+### Dashboard
+
+```
+http://localhost:8081    # Direct
+https://traefik.local    # Via Traefik lui-même
+```
+
+### Ajouter un nouveau service
+
+Il suffit d'ajouter des labels Docker au service :
+
+```yaml
+  mon-service:
+    image: mon-image:latest
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.mon-service.rule=Host(`mon-service.local`)"
+      - "traefik.http.routers.mon-service.entrypoints=websecure"
+      - "traefik.http.routers.mon-service.tls=true"
+      - "traefik.http.services.mon-service.loadbalancer.server.port=PORT_INTERNE"
+      - "traefik.http.routers.mon-service.middlewares=allow-iframe@file"
+```
+
+Puis ajouter `127.0.0.1 mon-service.local` au fichier hosts.
+
+### Rollback vers Caddy
+
+```bash
+# Dans docker-compose.yaml :
+# 1. Commenter le service traefik
+# 2. Décommenter le service caddy (commenté en bas du fichier)
+docker-compose up -d caddy
+docker-compose stop traefik
+```
+
+### Regénérer les certificats mkcert (nouveaux domaines)
+
+```powershell
+# En administrateur, dans le dossier certs/
+mkcert -cert-file cert.pem -key-file key.pem `
+  webui.local litellm.local n8n.local searxng.local `
+  qdrant.local langfuse.local grafana.local prometheus.local `
+  authentik.local comfyui.local whisper.local dashboard.local `
+  traefik.local crewai.local gitops.local localhost 127.0.0.1
+```
+
+### Ajouter les nouveaux domaines au hosts file (en administrateur)
+
+```powershell
+# PowerShell en administrateur
+$hosts = "C:\Windows\System32\drivers\etc\hosts"
+@("127.0.0.1 traefik.local","127.0.0.1 crewai.local","127.0.0.1 gitops.local","127.0.0.1 comfyui.local","127.0.0.1 whisper.local") |
+  ForEach-Object { Add-Content $hosts "`n$_" }
+```
+
+### Middlewares disponibles
+
+| Middleware | Effet |
+|-----------|-------|
+| `allow-iframe@file` | Supprime X-Frame-Options et CSP (iframes Dashy) |
+| `rate-limit@file` | Limite à 200 req/s (burst 100) |
+| `secure-headers@file` | HSTS + SSL redirect |
+| `authentik-sso@file` | Forward auth SSO Authentik |
+
+---
+
+## CI/CD GitHub Actions
+
+Deux workflows automatisés à chaque push sur `main`.
+
+### `ci.yml` — Tests et build
+
+| Job | Description |
+|-----|-------------|
+| `validate` | Valide `docker-compose.yaml`, configs Traefik, lint YAML |
+| `test-python` | `ruff` lint + `pytest` (27 tests) |
+| `build-images` | Build images agents, sandbox, crewai-ui, gitops |
+| `deploy-status` | Confirme que tout est prêt au déploiement |
+
+### `security.yml` — Scan quotidien (3h UTC)
+
+| Job | Description |
+|-----|-------------|
+| `trivy-fs` | Scan filesystem (secrets, configs) → GitHub Security tab |
+| `trivy-images` | Scan images Docker (Traefik, LiteLLM, Open WebUI, Qdrant) |
+| `check-secrets` | Trufflehog — détection secrets hardcodés |
+
+### Ajouter un job CI
+
+```yaml
+# Dans .github/workflows/ci.yml
+  mon-job:
+    runs-on: ubuntu-latest
+    needs: validate
+    steps:
+      - uses: actions/checkout@v4
+      - name: Mon test
+        run: mon-commande
+```
+
+---
+
+## GitOps Webhook
+
+Service Python FastAPI qui écoute les push GitHub et redéploie automatiquement la stack. C'est l'équivalent Docker Compose d'ArgoCD (ArgoCD est Kubernetes-natif — fichiers dans `argocd/` pour future migration K8s).
+
+### Fonctionnement
+
+```
+Push GitHub main → Webhook → git pull → docker-compose up -d --build
+```
+
+### Setup GitHub Webhook
+
+```
+URL     : https://gitops.local/webhook/github (ou http://IP:9100/webhook/github)
+Secret  : valeur de GITHUB_WEBHOOK_SECRET dans .env
+Content : application/json
+Events  : Just the push event
+```
+
+### Dashboard déploiements
+
+```
+http://localhost:9100         # Dashboard web
+http://localhost:9100/docs    # API Swagger
+GET /deployments              # Liste des 20 derniers déploiements
+GET /deployments/{id}         # Détails d'un déploiement (logs inclus)
+```
+
+### Fichiers ArgoCD (future migration Kubernetes)
+
+```
+argocd/
+├── applications/stack-ia.yaml    # Application ArgoCD avec sync auto
+└── install.sh                    # Script d'installation ArgoCD CLI
+```
+
+Pour migrer vers K8s (k3s, minikube) : `bash argocd/install.sh`
 
 ---
 

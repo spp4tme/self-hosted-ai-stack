@@ -1,0 +1,45 @@
+# ArgoCD Application — Jarvis Self-Hosted AI Stack
+# NOTE: ArgoCD est un outil Kubernetes-natif.
+# Ce fichier est préparé pour une future migration vers K8s (k3s, minikube, etc.)
+# Pour Docker Compose, utilisez le service gitops-webhook sur :9100
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: jarvis-ai-stack
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: jarvis
+    app.kubernetes.io/component: stack-ia
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/spp4tme/self-hosted-ai-stack
+    targetRevision: HEAD
+    path: .
+    # Quand migré vers Helm/Kustomize :
+    # helm:
+    #   releaseName: jarvis
+    # kustomize:
+    #   namePrefix: jarvis-
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: jarvis
+
+  syncPolicy:
+    automated:
+      prune: true       # Supprime les ressources supprimées du repo
+      selfHeal: true    # Re-sync si l'état dérive
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+  revisionHistoryLimit: 10

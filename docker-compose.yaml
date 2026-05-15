@@ -1,5 +1,61 @@
 services:
 
+  # ── Reverse proxy — Traefik (remplace Caddy) ─────────────────────────────────
+  # Pour rollback vers Caddy : commenter ce service, décommenter caddy ci-dessous
+  traefik:
+    image: traefik:v3.0
+    container_name: traefik
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8081:8080"   # Dashboard Traefik (8081 évite conflit avec open-webui)
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
+      - ./certs:/certs:ro
+      - traefik_letsencrypt:/letsencrypt
+      - traefik_logs:/var/log/traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik-dashboard.rule=Host(`traefik.local`)"
+      - "traefik.http.routers.traefik-dashboard.entrypoints=websecure"
+      - "traefik.http.routers.traefik-dashboard.tls=true"
+      - "traefik.http.routers.traefik-dashboard.service=api@internal"
+      - "traefik.http.routers.traefik-dashboard.middlewares=allow-iframe@file"
+
+  # ── [ROLLBACK] Caddy — décommenter pour revenir à Caddy ──────────────────────
+  # caddy:
+  #   image: caddy:2-alpine
+  #   container_name: caddy
+  #   restart: unless-stopped
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+  #     - ./certs:/certs:ro
+  #     - ./dashboard:/srv/dashboard:ro
+  #     - caddy_data:/data
+  #     - caddy_logs:/var/log/caddy
+
+  # ── Dashboard statique (servi par nginx — remplace file_server Caddy) ─────────
+  dashboard:
+    image: nginx:alpine
+    container_name: dashboard
+    restart: unless-stopped
+    volumes:
+      - ./dashboard:/usr/share/nginx/html:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.dashboard.rule=Host(`dashboard.local`)"
+      - "traefik.http.routers.dashboard.entrypoints=websecure"
+      - "traefik.http.routers.dashboard.tls=true"
+      - "traefik.http.services.dashboard.loadbalancer.server.port=80"
+      - "traefik.http.routers.dashboard.middlewares=allow-iframe@file"
+
+  # ── LLM & Chat ──────────────────────────────────────────────────────────────
   open-webui:
     image: ghcr.io/open-webui/open-webui:main
     container_name: open-webui
@@ -10,19 +66,24 @@ services:
       - ./open-webui/data:/app/backend/data
     environment:
       - OLLAMA_BASE_URL=http://host.docker.internal:11434
-      # RAG — Qdrant + Ollama embeddings
       - VECTOR_DB=qdrant
       - QDRANT_URI=http://qdrant:6333
       - RAG_EMBEDDING_ENGINE=ollama
       - RAG_OLLAMA_BASE_URL=http://host.docker.internal:11434
       - RAG_EMBEDDING_MODEL=nomic-embed-text
-      # STT — Whisper local
       - AUDIO_STT_ENGINE=openai
       - AUDIO_STT_OPENAI_API_BASE_URL=http://whisper:8000/v1
       - AUDIO_STT_OPENAI_API_KEY=local
       - AUDIO_STT_MODEL=Systran/faster-whisper-base
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.webui.rule=Host(`webui.local`)"
+      - "traefik.http.routers.webui.entrypoints=websecure"
+      - "traefik.http.routers.webui.tls=true"
+      - "traefik.http.services.webui.loadbalancer.server.port=8080"
+      - "traefik.http.routers.webui.middlewares=allow-iframe@file"
 
   litellm:
     image: ghcr.io/berriai/litellm:main-latest
@@ -37,7 +98,15 @@ services:
       LANGFUSE_PUBLIC_KEY: "pk-lf-adcbf3c6-f80e-493e-9364-36ba920ac37f"
       LANGFUSE_SECRET_KEY: "sk-lf-ec919e8a-4d00-48ef-b883-c97a9a80ede5"
       LANGFUSE_HOST: http://langfuse:3000
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.litellm.rule=Host(`litellm.local`)"
+      - "traefik.http.routers.litellm.entrypoints=websecure"
+      - "traefik.http.routers.litellm.tls=true"
+      - "traefik.http.services.litellm.loadbalancer.server.port=4000"
+      - "traefik.http.routers.litellm.middlewares=allow-iframe@file"
 
+  # ── Recherche & Vector DB ────────────────────────────────────────────────────
   searxng:
     image: searxng/searxng:latest
     container_name: searxng
@@ -46,6 +115,13 @@ services:
       - "8888:8080"
     volumes:
       - ./searxng:/etc/searxng
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.searxng.rule=Host(`searxng.local`)"
+      - "traefik.http.routers.searxng.entrypoints=websecure"
+      - "traefik.http.routers.searxng.tls=true"
+      - "traefik.http.services.searxng.loadbalancer.server.port=8080"
+      - "traefik.http.routers.searxng.middlewares=allow-iframe@file"
 
   qdrant:
     image: qdrant/qdrant:latest
@@ -55,7 +131,15 @@ services:
       - "6333:6333"
     volumes:
       - ./qdrant/data:/qdrant/storage
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.qdrant.rule=Host(`qdrant.local`)"
+      - "traefik.http.routers.qdrant.entrypoints=websecure"
+      - "traefik.http.routers.qdrant.tls=true"
+      - "traefik.http.services.qdrant.loadbalancer.server.port=6333"
+      - "traefik.http.routers.qdrant.middlewares=allow-iframe@file"
 
+  # ── Automatisation ───────────────────────────────────────────────────────────
   n8n:
     image: n8nio/n8n:latest
     container_name: n8n
@@ -64,6 +148,13 @@ services:
       - "5678:5678"
     volumes:
       - ./n8n/data:/home/node/.n8n
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.n8n.rule=Host(`n8n.local`)"
+      - "traefik.http.routers.n8n.entrypoints=websecure"
+      - "traefik.http.routers.n8n.tls=true"
+      - "traefik.http.services.n8n.loadbalancer.server.port=5678"
+      - "traefik.http.routers.n8n.middlewares=allow-iframe@file"
 
   # ── Création & Audio ─────────────────────────────────────────────────────────
   comfyui:
@@ -81,6 +172,13 @@ services:
       - DIRECT_ADDRESS_GET_WAN_IP=false
       - WEB_ENABLE_AUTH=false
       - COMFYUI_ARGS=--cpu
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.comfyui.rule=Host(`comfyui.local`)"
+      - "traefik.http.routers.comfyui.entrypoints=websecure"
+      - "traefik.http.routers.comfyui.tls=true"
+      - "traefik.http.services.comfyui.loadbalancer.server.port=8188"
+      - "traefik.http.routers.comfyui.middlewares=allow-iframe@file"
 
   whisper:
     image: fedirz/faster-whisper-server:latest-cpu
@@ -93,20 +191,13 @@ services:
     environment:
       - WHISPER__MODEL=Systran/faster-whisper-base
       - WHISPER__LANGUAGE=fr
-
-  caddy:
-    image: caddy:2-alpine
-    container_name: caddy
-    restart: unless-stopped
-    ports:
-    - "80:80"
-    - "443:443"
-    volumes:
-    - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-    - ./certs:/certs:ro
-    - ./dashboard:/srv/dashboard:ro
-    - caddy_data:/data
-    - caddy_logs:/var/log/caddy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.whisper.rule=Host(`whisper.local`)"
+      - "traefik.http.routers.whisper.entrypoints=websecure"
+      - "traefik.http.routers.whisper.tls=true"
+      - "traefik.http.services.whisper.loadbalancer.server.port=8000"
+      - "traefik.http.routers.whisper.middlewares=allow-iframe@file"
 
   # ── Monitoring ───────────────────────────────────────────────────────────────
   cadvisor:
@@ -138,6 +229,13 @@ services:
       - "--storage.tsdb.path=/prometheus"
       - "--storage.tsdb.retention.time=30d"
       - "--web.enable-lifecycle"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.prometheus.rule=Host(`prometheus.local`)"
+      - "traefik.http.routers.prometheus.entrypoints=websecure"
+      - "traefik.http.routers.prometheus.tls=true"
+      - "traefik.http.services.prometheus.loadbalancer.server.port=9090"
+      - "traefik.http.routers.prometheus.middlewares=allow-iframe@file"
 
   grafana:
     image: grafana/grafana:latest
@@ -155,6 +253,13 @@ services:
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_SECURITY_ALLOW_EMBEDDING: "true"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=Host(`grafana.local`)"
+      - "traefik.http.routers.grafana.entrypoints=websecure"
+      - "traefik.http.routers.grafana.tls=true"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+      - "traefik.http.routers.grafana.middlewares=allow-iframe@file"
 
   # ── SSO Authentik ─────────────────────────────────────────────────────────────
   authentik-db:
@@ -195,6 +300,13 @@ services:
       AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
       AUTHENTIK_BOOTSTRAP_PASSWORD: KWyIcA7OmPZYdYSd
       AUTHENTIK_BOOTSTRAP_TOKEN: KWyIcA7OmPZYdYSd
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.authentik.rule=Host(`authentik.local`)"
+      - "traefik.http.routers.authentik.entrypoints=websecure"
+      - "traefik.http.routers.authentik.tls=true"
+      - "traefik.http.services.authentik.loadbalancer.server.port=9000"
+      - "traefik.http.routers.authentik.middlewares=allow-iframe@file"
 
   authentik-worker:
     image: ghcr.io/goauthentik/server:2024.12.3
@@ -213,7 +325,7 @@ services:
       AUTHENTIK_SECRET_KEY: pmBG1HTGGrzmlWv3UaXOJuy6FasC91WOJM1rgFBXilkPnQ0uAm
       AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
 
-  # ── Bases de données ──────────────────────────────────────────────────────────
+  # ── Observabilité ─────────────────────────────────────────────────────────────
   langfuse-db:
     image: postgres:16-alpine
     container_name: langfuse-db
@@ -239,10 +351,78 @@ services:
       SALT: rx5oN1HMvwxqDRJAPjPSPnSOLWr5lYJp
       NEXTAUTH_URL: https://langfuse.local
       TELEMETRY_ENABLED: "false"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.langfuse.rule=Host(`langfuse.local`)"
+      - "traefik.http.routers.langfuse.entrypoints=websecure"
+      - "traefik.http.routers.langfuse.tls=true"
+      - "traefik.http.services.langfuse.loadbalancer.server.port=3000"
+      - "traefik.http.routers.langfuse.middlewares=allow-iframe@file"
+
+  # ── Multi-Agents CrewAI (Streamlit UI) ────────────────────────────────────────
+  crewai-ui:
+    build:
+      context: ./crewai
+      dockerfile: Dockerfile
+    container_name: crewai-ui
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    environment:
+      - AGENTS_API_URL=http://agents-api:8100
+      - LITELLM_URL=http://litellm:4000
+      - LITELLM_API_KEY=${LITELLM_API_KEY:-sk-local}
+      - QDRANT_URL=http://qdrant:6333
+      - SEARXNG_URL=http://searxng:8888
+      - PROMETHEUS_URL=http://prometheus:9090
+    depends_on:
+      - litellm
+      - qdrant
+      - searxng
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.crewai.rule=Host(`crewai.local`)"
+      - "traefik.http.routers.crewai.entrypoints=websecure"
+      - "traefik.http.routers.crewai.tls=true"
+      - "traefik.http.services.crewai.loadbalancer.server.port=8501"
+      - "traefik.http.routers.crewai.middlewares=allow-iframe@file"
+
+  # ── GitOps Webhook (équivalent Docker Compose d'ArgoCD) ─────────────────────
+  gitops-webhook:
+    build:
+      context: ./gitops
+      dockerfile: Dockerfile
+    container_name: gitops-webhook
+    restart: unless-stopped
+    ports:
+      - "9100:9100"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/repo
+    environment:
+      - REPO_PATH=/repo
+      - DEPLOY_BRANCH=main
+      - COMPOSE_FILE=docker-compose.yaml
+      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET:-}
+      - GITOPS_PORT=9100
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.gitops.rule=Host(`gitops.local`)"
+      - "traefik.http.routers.gitops.entrypoints=websecure"
+      - "traefik.http.routers.gitops.tls=true"
+      - "traefik.http.services.gitops.loadbalancer.server.port=9100"
+      - "traefik.http.routers.gitops.middlewares=allow-iframe@file"
 
 volumes:
+  # Traefik
+  traefik_letsencrypt:
+  traefik_logs:
+  # [ROLLBACK] Caddy
   caddy_data:
   caddy_logs:
+  # Services
   whisper_models:
   langfuse_db:
   prometheus_data:
