@@ -41,7 +41,8 @@ certificats/
 # Claude Code session data
 .claude/
 
-# Fichiers Word/Excel/PowerPoint
-*.docx
+# Fichiers Word/Excel/PowerPoint (sauf docs/ générés automatiquement)
 *.xlsx
 *.pptx
+*.docx
+!docs/Jarvis_Documentation.docx
