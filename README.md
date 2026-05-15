@@ -101,7 +101,7 @@ Mémoire persistante par utilisateur via **Mem0 + Qdrant**. Stockage vectoriel s
 ```python
 from memory.store import MemoryStore
 
-store = MemoryStore(user_id="anthony")
+store = MemoryStore(user_id="prénom")
 store.add("Je préfère Python à JavaScript")
 results = store.search("quel langage utiliser ?", limit=5)
 context = store.build_context("choix technologique")  # → injecte dans system prompt
