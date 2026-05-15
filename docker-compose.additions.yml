@@ -1,0 +1,101 @@
+services:
+
+  # ── API Agents CrewAI (:8100) ─────────────────────────────────────────────
+  agents-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.agents
+    container_name: agents-api
+    restart: unless-stopped
+    ports:
+      - "8100:8100"
+    environment:
+      - LITELLM_URL=http://litellm:4000
+      - LITELLM_API_KEY=${LITELLM_API_KEY:-sk-local}
+      - QDRANT_URL=http://qdrant:6333
+      - OLLAMA_URL=http://host.docker.internal:11434
+      - SEARXNG_URL=http://searxng:8888
+      - AGENTS_API_PORT=8100
+    volumes:
+      - ./agents:/app/agents:ro
+      - ./memory:/app/memory:ro
+      - ./.env:/app/.env:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── API Sandbox (:8101) ────────────────────────────────────────────────────
+  sandbox-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.sandbox
+    container_name: sandbox-api
+    restart: unless-stopped
+    ports:
+      - "8101:8101"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./sandbox:/app/sandbox:ro
+      - ./.env:/app/.env:ro
+    environment:
+      - SANDBOX_API_PORT=8101
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8101/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Code Reviewer Webhook (:8102) ─────────────────────────────────────────
+  code-reviewer:
+    build:
+      context: .
+      dockerfile: Dockerfile.agents
+    container_name: code-reviewer
+    restart: unless-stopped
+    ports:
+      - "8102:8102"
+    environment:
+      - LITELLM_URL=http://litellm:4000
+      - LITELLM_API_KEY=${LITELLM_API_KEY:-sk-local}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - GITHUB_REPO=${GITHUB_REPO:-}
+      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET:-}
+      - REVIEWER_WEBHOOK_PORT=8102
+    volumes:
+      - ./agents:/app/agents:ro
+      - ./.env:/app/.env:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["python", "-m", "agents.code_reviewer"]
+
+  # ── Self-Heal Metrics (:9099) ─────────────────────────────────────────────
+  self-heal:
+    build:
+      context: .
+      dockerfile: Dockerfile.agents
+    container_name: self-heal
+    restart: unless-stopped
+    ports:
+      - "9099:9099"
+    environment:
+      - SELFHEAL_METRICS_PORT=9099
+      - SELFHEAL_POLL_S=30
+      - OLLAMA_URL=http://host.docker.internal:11434
+      - LITELLM_URL=http://litellm:4000
+      - QDRANT_URL=http://qdrant:6333
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./devops:/app/devops
+      - ./.env:/app/.env:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["python", "-m", "devops.self_heal"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9099/health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3

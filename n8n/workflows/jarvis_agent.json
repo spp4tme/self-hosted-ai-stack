@@ -1,0 +1,67 @@
+{
+  "name": "Jarvis Agent — ReAct + Outils",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "jarvis-agent",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-agent",
+      "name": "Webhook Agent",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "jarvis-agent-webhook"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Jarvis Agent ReAct — résout des tâches en utilisant des outils\n// Receives: { task?, gesture?, context? }\n// Returns:  { response, steps, iterations_used, task }\n\nconst AGENT   = 'http://host.docker.internal:9999';\nconst OLLAMA  = 'http://host.docker.internal:11434';\nconst SEARXNG = 'http://host.docker.internal:8888';\nconst CHAT_MODEL = 'llama3.2';\nconst MAX_ITER   = 8;\n\nconst TOOL_DOCS = `Outils disponibles :\n- list_files  : Liste les fichiers d un dossier.  Args: {\"path\":\"C:\\\\\\\\Users\\\\\\\\antho\\\\\\\\Documents\\\\\\\\mon-ia\"}\n- read_file   : Lit le contenu d un fichier.      Args: {\"path\":\"C:\\\\\\\\chemin\\\\\\\\fichier.txt\"}\n- write_file  : Ecrit dans un fichier.            Args: {\"path\":\"C:\\\\\\\\chemin\\\\\\\\fichier.txt\",\"content\":\"texte\"}\n- run_python  : Execute du code Python.           Args: {\"code\":\"print('hello')\"}\n- web_search  : Recherche sur le web.             Args: {\"query\":\"termes de recherche\"}`;\n\nconst SYSTEM = `Tu es Jarvis, un agent IA autonome sur une machine Windows.\nTu résous des tâches étape par étape en utilisant des outils.\n\n${TOOL_DOCS}\n\nPour appeler un outil, réponds UNIQUEMENT avec ce format exact :\nTOOL: nom_outil\nARGS: {\"cle\":\"valeur\"}\n\nQuand la tâche est terminée, réponds UNIQUEMENT avec :\nFINAL: ta réponse complète\n\nRègles :\n- Utilise des chemins Windows absolus (C:\\\\\\\\Users\\\\\\\\antho\\\\\\\\Documents\\\\\\\\mon-ia\\\\\\\\...)\n- L accès aux fichiers est limité à C:\\\\\\\\Users\\\\\\\\antho\\\\\\\\Documents\\\\\\\\mon-ia\\\\\\\\\n- Sois efficace : n utilise les outils que si nécessaire\n- Réponds en français`;\n\nasync function executeTool(name, args) {\n  if (name === 'web_search') {\n    const q = encodeURIComponent(args.query || '');\n    const r = await fetch(`${SEARXNG}/search?q=${q}&format=json&language=fr-FR`, { signal: AbortSignal.timeout(8000) });\n    if (!r.ok) return 'Recherche web indisponible';\n    const d = await r.json();\n    return (d.results || []).slice(0, 3).map(x => `[${x.title}]\\n${x.content || ''}\\n${x.url}`).join('\\n---\\n') || 'Aucun résultat';\n  }\n\n  const isPost = ['read_file', 'write_file', 'run_python'].includes(name);\n  let url = `${AGENT}/tool/${name}`;\n  const opts = { signal: AbortSignal.timeout(20000) };\n\n  if (isPost) {\n    opts.method  = 'POST';\n    opts.headers = { 'Content-Type': 'application/json' };\n    opts.body    = JSON.stringify(args);\n  } else {\n    opts.method = 'GET';\n    const params = new URLSearchParams(args).toString();\n    if (params) url += `?${params}`;\n  }\n\n  const r = await fetch(url, opts);\n  const d = await r.json();\n  if (!d.ok) throw new Error(d.error || 'Tool error');\n\n  if (d.content !== undefined) return d.content;\n  if (d.output  !== undefined) return d.output;\n  if (d.items   !== undefined) return JSON.stringify(d.items, null, 2);\n  return JSON.stringify(d);\n}\n\nfunction parseResponse(text) {\n  const toolM  = text.match(/TOOL:\\s*(\\w+)/);\n  const argsM  = text.match(/ARGS:\\s*(\\{[\\s\\S]*?\\})/);\n  const finalM = text.match(/FINAL:\\s*([\\s\\S]+)/);\n  if (finalM) return { type: 'final', content: finalM[1].trim() };\n  if (toolM) {\n    let args = {};\n    if (argsM) { try { args = JSON.parse(argsM[1]); } catch (_) {} }\n    return { type: 'tool', tool: toolM[1].trim(), args };\n  }\n  return { type: 'unknown', content: text };\n}\n\nconst gestureTasks = {\n  STOP:     'Donne-moi un résumé de l état actuel du projet mon-ia en listant les fichiers principaux.',\n  NAVIGATE: 'Cherche les dernières nouveautés en IA locale (Ollama, LLM open-source) et résume les 3 points importants.',\n  SELECT:   'Liste tous les fichiers Python du projet mon-ia et dis-moi lequel a été modifié le plus récemment.',\n  VALIDATE: 'Vérifie que les fichiers de configuration du projet sont cohérents (config.json, docker-compose.yaml).',\n  SCROLL:   'Propose 3 améliorations concrètes au projet mon-ia avec des exemples de code si pertinent.',\n};\n\n// ── Main ──────────────────────────────────────────────────────────────────────\nconst input   = items[0].json;\nconst gesture = (input.gesture || 'NAVIGATE').toUpperCase();\nconst task    = input.task || gestureTasks[gesture] || gestureTasks.NAVIGATE;\n\nconst messages = [\n  { role: 'system', content: SYSTEM },\n  { role: 'user',   content: task },\n];\n\nconst steps = [];\nlet iterationsUsed = 0;\nlet finalResponse  = null;\n\nfor (let i = 0; i < MAX_ITER; i++) {\n  iterationsUsed = i + 1;\n\n  let llmText = '';\n  try {\n    const r = await fetch(`${OLLAMA}/api/chat`, {\n      method: 'POST', headers: { 'Content-Type': 'application/json' },\n      body: JSON.stringify({ model: CHAT_MODEL, messages, stream: false, options: { temperature: 0.2, num_predict: 512 } }),\n      signal: AbortSignal.timeout(60000),\n    });\n    const d = await r.json();\n    llmText = d.message?.content || '';\n  } catch (e) { finalResponse = `Erreur Ollama: ${e.message}`; break; }\n\n  messages.push({ role: 'assistant', content: llmText });\n  const parsed = parseResponse(llmText);\n\n  if (parsed.type === 'final') { finalResponse = parsed.content; break; }\n\n  if (parsed.type === 'tool') {\n    const step = { iteration: i + 1, tool: parsed.tool, args: parsed.args };\n    let toolResult = '';\n    try {\n      toolResult = await executeTool(parsed.tool, parsed.args);\n      step.result = toolResult.slice(0, 2000);\n    } catch (e) { toolResult = `Erreur outil: ${e.message}`; step.error = e.message; }\n    steps.push(step);\n    messages.push({ role: 'user', content: `Résultat de ${parsed.tool}:\\n${toolResult}\\n\\nContinue.` });\n  } else {\n    finalResponse = llmText;\n    break;\n  }\n}\n\nif (!finalResponse) finalResponse = 'Limite d itérations atteinte. Résultat partiel:\\n' + (steps.at(-1)?.result || '');\n\nreturn [{ json: { response: finalResponse, task, gesture, steps, iterations_used: iterationsUsed } }];"
+      },
+      "id": "agent-loop",
+      "name": "Agent Loop",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Agent": {
+      "main": [
+        [
+          {
+            "node": "Agent Loop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "jarvis-agent-v1",
+  "id": "jarvis-react-agent",
+  "tags": [
+    {
+      "name": "jarvis"
+    },
+    {
+      "name": "agent"
+    },
+    {
+      "name": "tools"
+    }
+  ]
+}

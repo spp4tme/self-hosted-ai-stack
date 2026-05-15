@@ -10,6 +10,17 @@ services:
       - ./open-webui/data:/app/backend/data
     environment:
       - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      # RAG — Qdrant + Ollama embeddings
+      - VECTOR_DB=qdrant
+      - QDRANT_URI=http://qdrant:6333
+      - RAG_EMBEDDING_ENGINE=ollama
+      - RAG_OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - RAG_EMBEDDING_MODEL=nomic-embed-text
+      # STT — Whisper local
+      - AUDIO_STT_ENGINE=openai
+      - AUDIO_STT_OPENAI_API_BASE_URL=http://whisper:8000/v1
+      - AUDIO_STT_OPENAI_API_KEY=local
+      - AUDIO_STT_MODEL=Systran/faster-whisper-base
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -22,6 +33,10 @@ services:
     volumes:
       - ./litellm/config.yaml:/app/config.yaml
     command: ["--config", "/app/config.yaml"]
+    environment:
+      LANGFUSE_PUBLIC_KEY: "pk-lf-adcbf3c6-f80e-493e-9364-36ba920ac37f"
+      LANGFUSE_SECRET_KEY: "sk-lf-ec919e8a-4d00-48ef-b883-c97a9a80ede5"
+      LANGFUSE_HOST: http://langfuse:3000
 
   searxng:
     image: searxng/searxng:latest
@@ -49,3 +64,188 @@ services:
       - "5678:5678"
     volumes:
       - ./n8n/data:/home/node/.n8n
+
+  # ── Création & Audio ─────────────────────────────────────────────────────────
+  comfyui:
+    image: ghcr.io/ai-dock/comfyui:latest-cpu
+    container_name: comfyui
+    restart: unless-stopped
+    ports:
+      - "8188:8188"
+    volumes:
+      - ./comfyui/models:/opt/ComfyUI/models
+      - ./comfyui/output:/opt/ComfyUI/output
+      - ./comfyui/input:/opt/ComfyUI/input
+    environment:
+      - DIRECT_ADDRESS=0.0.0.0
+      - DIRECT_ADDRESS_GET_WAN_IP=false
+      - WEB_ENABLE_AUTH=false
+      - COMFYUI_ARGS=--cpu
+
+  whisper:
+    image: fedirz/faster-whisper-server:latest-cpu
+    container_name: whisper
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    volumes:
+      - whisper_models:/root/.cache/huggingface
+    environment:
+      - WHISPER__MODEL=Systran/faster-whisper-base
+      - WHISPER__LANGUAGE=fr
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+    - "80:80"
+    - "443:443"
+    volumes:
+    - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+    - ./certs:/certs:ro
+    - ./dashboard:/srv/dashboard:ro
+    - caddy_data:/data
+    - caddy_logs:/var/log/caddy
+
+  # ── Monitoring ───────────────────────────────────────────────────────────────
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    restart: unless-stopped
+    ports:
+      - "8090:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+    privileged: true
+    command:
+      - "--docker_only=true"
+      - "--store_container_labels=false"
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.enable-lifecycle"
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_SERVER_ROOT_URL: https://grafana.local
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+
+  # ── SSO Authentik ─────────────────────────────────────────────────────────────
+  authentik-db:
+    image: postgres:16-alpine
+    container_name: authentik-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: authentik
+      POSTGRES_PASSWORD: authentik_password
+      POSTGRES_DB: authentik
+    volumes:
+      - authentik_db:/var/lib/postgresql/data
+
+  authentik-redis:
+    image: redis:7-alpine
+    container_name: authentik-redis
+    restart: unless-stopped
+    volumes:
+      - authentik_redis:/data
+
+  authentik:
+    image: ghcr.io/goauthentik/server:2024.12.3
+    container_name: authentik
+    restart: unless-stopped
+    command: server
+    ports:
+      - "9000:9000"
+    depends_on:
+      - authentik-db
+      - authentik-redis
+    environment:
+      AUTHENTIK_REDIS__HOST: authentik-redis
+      AUTHENTIK_POSTGRESQL__HOST: authentik-db
+      AUTHENTIK_POSTGRESQL__USER: authentik
+      AUTHENTIK_POSTGRESQL__PASSWORD: authentik_password
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_SECRET_KEY: pmBG1HTGGrzmlWv3UaXOJuy6FasC91WOJM1rgFBXilkPnQ0uAm
+      AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
+      AUTHENTIK_BOOTSTRAP_PASSWORD: KWyIcA7OmPZYdYSd
+      AUTHENTIK_BOOTSTRAP_TOKEN: KWyIcA7OmPZYdYSd
+
+  authentik-worker:
+    image: ghcr.io/goauthentik/server:2024.12.3
+    container_name: authentik-worker
+    restart: unless-stopped
+    command: worker
+    depends_on:
+      - authentik-db
+      - authentik-redis
+    environment:
+      AUTHENTIK_REDIS__HOST: authentik-redis
+      AUTHENTIK_POSTGRESQL__HOST: authentik-db
+      AUTHENTIK_POSTGRESQL__USER: authentik
+      AUTHENTIK_POSTGRESQL__PASSWORD: authentik_password
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_SECRET_KEY: pmBG1HTGGrzmlWv3UaXOJuy6FasC91WOJM1rgFBXilkPnQ0uAm
+      AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
+
+  # ── Bases de données ──────────────────────────────────────────────────────────
+  langfuse-db:
+    image: postgres:16-alpine
+    container_name: langfuse-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: langfuse_password
+      POSTGRES_DB: langfuse
+    volumes:
+      - langfuse_db:/var/lib/postgresql/data
+
+  langfuse:
+    image: langfuse/langfuse:2
+    container_name: langfuse
+    restart: unless-stopped
+    depends_on:
+      - langfuse-db
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://langfuse:langfuse_password@langfuse-db:5432/langfuse
+      NEXTAUTH_SECRET: aDLvrh1Q3NfQRpwC2aBAEaPTwSX4uXaN
+      SALT: rx5oN1HMvwxqDRJAPjPSPnSOLWr5lYJp
+      NEXTAUTH_URL: https://langfuse.local
+      TELEMETRY_ENABLED: "false"
+
+volumes:
+  caddy_data:
+  caddy_logs:
+  whisper_models:
+  langfuse_db:
+  prometheus_data:
+  grafana_data:
+  authentik_db:
+  authentik_redis:

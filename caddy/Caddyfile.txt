@@ -1,0 +1,24 @@
+webui.local {
+  tls /certs/cert.pem /certs/key.pem
+  reverse_proxy open-webui:8080
+}
+
+litellm.local {
+  tls /certs/cert.pem /certs/key.pem
+  reverse_proxy litellm:4000
+}
+
+n8n.local {
+  tls /certs/cert.pem /certs/key.pem
+  reverse_proxy n8n:5678
+}
+
+searxng.local {
+  tls /certs/cert.pem /certs/key.pem
+  reverse_proxy searxng:8888
+}
+
+qdrant.local {
+  tls /certs/cert.pem /certs/key.pem
+  reverse_proxy qdrant:6333
+}

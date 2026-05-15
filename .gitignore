@@ -23,3 +23,25 @@ desktop.ini
 __pycache__/
 *.pyc
 .venv/
+*.egg-info/
+
+# Certificats et clés privées
+certs/
+certificats/
+*.pem
+*.key
+
+# Fichiers binaires / installeurs
+*.exe
+*.msi
+
+# Fichiers temporaires Office
+~$*
+
+# Claude Code session data
+.claude/
+
+# Fichiers Word/Excel/PowerPoint
+*.docx
+*.xlsx
+*.pptx

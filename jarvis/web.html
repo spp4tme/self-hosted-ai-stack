@@ -1,0 +1,463 @@
+
+<h2 class="sr-only">Jarvis — Contrôle gestuel par caméra avec détection MediaPipe</h2>
+
+<style>
+#cam-btn { width: 100%; padding: 10px; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.1em; cursor: pointer; }
+.fdot-circle { width: 100%; aspect-ratio: 1; border-radius: 50%; background: var(--color-border-tertiary); border: 0.5px solid var(--color-border-secondary); transition: background 0.15s; }
+.fdot-circle.active { background: #3b82f6; }
+.fdot-circle.fdot-h2.active { background: #a855f7; }
+.gesture-chip.active-chip { border-color: #3b82f6 !important; }
+.gesture-chip.active-chip .chip-cmd { color: #3b82f6; }
+@keyframes mode-flash { 0%,100%{opacity:1} 50%{opacity:0.2} }
+.mode-flash { animation: mode-flash 0.25s ease; }
+</style>
+
+<div style="padding: 1rem 0; font-family: var(--font-mono);">
+
+  <!-- Header -->
+  <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.875rem; padding-bottom: 0.75rem; border-bottom: 0.5px solid var(--color-border-tertiary);">
+    <div>
+      <p style="font-size: 10px; letter-spacing: 0.2em; color: var(--color-text-tertiary); margin: 0;">JARVIS · SYSTÈME GESTUEL</p>
+      <h3 style="font-size: 20px; font-weight: 500; margin: 4px 0 0; letter-spacing: 0.04em;">Contrôle par la main</h3>
+    </div>
+    <div style="text-align: right;">
+      <div style="display: flex; align-items: center; gap: 6px; justify-content: flex-end;">
+        <div id="dot" style="width: 7px; height: 7px; border-radius: 50%; background: var(--color-border-secondary); transition: background 0.3s;"></div>
+        <span id="sys-status" style="font-size: 10px; color: var(--color-text-tertiary); letter-spacing: 0.12em;">HORS LIGNE</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 6px; margin-top: 6px; justify-content: flex-end;">
+        <span style="font-size: 9px; color: var(--color-text-tertiary); letter-spacing: 0.15em;">MODE</span>
+        <div id="mode-chip" style="padding: 2px 10px; border-radius: 20px; font-size: 9px; letter-spacing: 0.15em; font-weight: 700; border: 1px solid #22c55e; color: #22c55e; transition: color 0.2s, border-color 0.2s; cursor: default;">MEDIA</div>
+        <span style="font-size: 9px; color: var(--color-text-tertiary);">· Rock pour changer</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Grille principale -->
+  <div style="display: grid; grid-template-columns: 1fr 256px; gap: 1rem; align-items: start;">
+
+    <!-- Flux caméra -->
+    <div style="background: var(--color-background-secondary); border-radius: var(--border-radius-lg); border: 0.5px solid var(--color-border-tertiary); overflow: hidden; position: relative; aspect-ratio: 4/3;">
+      <video id="video" autoplay playsinline muted style="width: 100%; height: 100%; display: block; transform: scaleX(-1); object-fit: cover; background: var(--color-background-tertiary);"></video>
+      <canvas id="canvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform: scaleX(-1); pointer-events: none;"></canvas>
+      <div style="position: absolute; top: 10px; left: 10px; width: 16px; height: 16px; border-top: 1.5px solid #3b82f6; border-left: 1.5px solid #3b82f6; opacity: 0.7;"></div>
+      <div style="position: absolute; top: 10px; right: 10px; width: 16px; height: 16px; border-top: 1.5px solid #3b82f6; border-right: 1.5px solid #3b82f6; opacity: 0.7;"></div>
+      <div style="position: absolute; bottom: 10px; left: 10px; width: 16px; height: 16px; border-bottom: 1.5px solid #3b82f6; border-left: 1.5px solid #3b82f6; opacity: 0.7;"></div>
+      <div style="position: absolute; bottom: 10px; right: 10px; width: 16px; height: 16px; border-bottom: 1.5px solid #3b82f6; border-right: 1.5px solid #3b82f6; opacity: 0.7;"></div>
+      <div id="no-cam" style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none;">
+        <i class="ti ti-camera-off" style="font-size: 28px; color: var(--color-text-tertiary);" aria-hidden="true"></i>
+        <p style="font-size: 12px; color: var(--color-text-tertiary); margin: 8px 0 0; letter-spacing: 0.1em;">CAMÉRA INACTIVE</p>
+      </div>
+    </div>
+
+    <!-- Panneau droit -->
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+
+      <!-- Main 1 (bleu) -->
+      <div style="background: var(--color-background-secondary); border-radius: var(--border-radius-lg); border: 0.5px solid var(--color-border-tertiary); padding: 0.875rem;">
+        <div style="display: flex; align-items: center; gap: 5px; margin-bottom: 6px;">
+          <div style="width: 6px; height: 6px; border-radius: 50%; background: #3b82f6; flex-shrink: 0;"></div>
+          <p style="font-size: 9px; letter-spacing: 0.2em; color: var(--color-text-tertiary); margin: 0;">MAIN 1 · GESTE</p>
+        </div>
+        <p id="g-name" style="font-size: 16px; font-weight: 500; margin: 0; min-height: 22px; letter-spacing: 0.03em;">—</p>
+        <p id="g-sub"  style="font-size: 10px; color: var(--color-text-secondary); margin: 3px 0 0; min-height: 13px;">Aucune main</p>
+        <p id="g-cmd"  style="font-size: 12px; font-weight: 500; color: #3b82f6; margin: 6px 0 0; min-height: 16px; letter-spacing: 0.06em;">—</p>
+      </div>
+
+      <!-- Main 2 (violet) -->
+      <div style="background: var(--color-background-secondary); border-radius: var(--border-radius-lg); border: 0.5px solid var(--color-border-tertiary); padding: 0.875rem;">
+        <div style="display: flex; align-items: center; gap: 5px; margin-bottom: 6px;">
+          <div style="width: 6px; height: 6px; border-radius: 50%; background: #a855f7; flex-shrink: 0;"></div>
+          <p style="font-size: 9px; letter-spacing: 0.2em; color: var(--color-text-tertiary); margin: 0;">MAIN 2 · GESTE</p>
+        </div>
+        <p id="g2-name" style="font-size: 16px; font-weight: 500; margin: 0; min-height: 22px; letter-spacing: 0.03em; color: var(--color-text-tertiary);">—</p>
+        <p id="g2-sub"  style="font-size: 10px; color: var(--color-text-secondary); margin: 3px 0 0; min-height: 13px;">Aucune main</p>
+        <p id="g2-cmd"  style="font-size: 12px; font-weight: 500; color: #a855f7; margin: 6px 0 0; min-height: 16px; letter-spacing: 0.06em;">—</p>
+      </div>
+
+      <!-- État doigts -->
+      <div style="background: var(--color-background-secondary); border-radius: var(--border-radius-lg); border: 0.5px solid var(--color-border-tertiary); padding: 0.875rem;">
+        <p style="font-size: 9px; letter-spacing: 0.2em; color: var(--color-text-tertiary); margin: 0 0 8px;">ÉTAT DOIGTS</p>
+        <div style="display: flex; gap: 6px; align-items: flex-end; margin-bottom: 6px;">
+          <div style="flex:1;text-align:center;"><div class="fdot-circle" id="f0"></div><p style="font-size:8px;color:var(--color-text-tertiary);margin:3px 0 0;letter-spacing:0.05em;">PO</p></div>
+          <div style="flex:1;text-align:center;"><div class="fdot-circle" id="f1"></div><p style="font-size:8px;color:var(--color-text-tertiary);margin:3px 0 0;letter-spacing:0.05em;">IX</p></div>
+          <div style="flex:1;text-align:center;"><div class="fdot-circle" id="f2"></div><p style="font-size:8px;color:var(--color-text-tertiary);margin:3px 0 0;letter-spacing:0.05em;">MA</p></div>
+          <div style="flex:1;text-align:center;"><div class="fdot-circle" id="f3"></div><p style="font-size:8px;color:var(--color-text-tertiary);margin:3px 0 0;letter-spacing:0.05em;">AN</p></div>
+          <div style="flex:1;text-align:center;"><div class="fdot-circle" id="f4"></div><p style="font-size:8px;color:var(--color-text-tertiary);margin:3px 0 0;letter-spacing:0.05em;">AU</p></div>
+        </div>
+        <div style="display: flex; gap: 6px; align-items: flex-end;">
+          <div style="flex:1;text-align:center;"><div class="fdot-circle fdot-h2" id="h2f0"></div></div>
+          <div style="flex:1;text-align:center;"><div class="fdot-circle fdot-h2" id="h2f1"></div></div>
+          <div style="flex:1;text-align:center;"><div class="fdot-circle fdot-h2" id="h2f2"></div></div>
+          <div style="flex:1;text-align:center;"><div class="fdot-circle fdot-h2" id="h2f3"></div></div>
+          <div style="flex:1;text-align:center;"><div class="fdot-circle fdot-h2" id="h2f4"></div></div>
+        </div>
+      </div>
+
+      <button id="cam-btn" onclick="toggleCamera()">ACTIVER CAMÉRA ↗</button>
+    </div>
+  </div>
+
+  <!-- Bibliothèque de gestes (labels mis à jour selon le mode) -->
+  <div style="margin-top: 1.25rem;">
+    <p style="font-size: 9px; letter-spacing: 0.2em; color: var(--color-text-tertiary); margin: 0 0 0.75rem;">BIBLIOTHÈQUE DE GESTES · <span id="lib-mode-label" style="color: #22c55e;">MODE MEDIA</span></p>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px;" id="gesture-lib">
+      <div class="gesture-chip" data-key="STOP" style="background: var(--color-background-secondary); border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-tertiary); padding: 0.625rem;">
+        <p style="font-size: 9px; letter-spacing: 0.15em; color: var(--color-text-tertiary); margin: 0 0 3px;">G01</p>
+        <p style="font-size: 12px; font-weight: 500; margin: 0;">Paume ouverte</p>
+        <p class="chip-cmd" id="chip-STOP" style="font-size: 10px; color: var(--color-text-secondary); margin: 3px 0 0; letter-spacing: 0.08em;">Pause / Play</p>
+      </div>
+      <div class="gesture-chip" data-key="SÉLECTIONNER" style="background: var(--color-background-secondary); border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-tertiary); padding: 0.625rem;">
+        <p style="font-size: 9px; letter-spacing: 0.15em; color: var(--color-text-tertiary); margin: 0 0 3px;">G02</p>
+        <p style="font-size: 12px; font-weight: 500; margin: 0;">Poing fermé</p>
+        <p class="chip-cmd" id="chip-SÉLECTIONNER" style="font-size: 10px; color: var(--color-text-secondary); margin: 3px 0 0; letter-spacing: 0.08em;">← Précédent</p>
+      </div>
+      <div class="gesture-chip" data-key="NAVIGUER" style="background: var(--color-background-secondary); border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-tertiary); padding: 0.625rem;">
+        <p style="font-size: 9px; letter-spacing: 0.15em; color: var(--color-text-tertiary); margin: 0 0 3px;">G03</p>
+        <p style="font-size: 12px; font-weight: 500; margin: 0;">Index levé</p>
+        <p class="chip-cmd" id="chip-NAVIGUER" style="font-size: 10px; color: var(--color-text-secondary); margin: 3px 0 0; letter-spacing: 0.08em;">Suivant →</p>
+      </div>
+      <div class="gesture-chip" data-key="SCROLL" style="background: var(--color-background-secondary); border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-tertiary); padding: 0.625rem;">
+        <p style="font-size: 9px; letter-spacing: 0.15em; color: var(--color-text-tertiary); margin: 0 0 3px;">G04</p>
+        <p style="font-size: 12px; font-weight: 500; margin: 0;">Deux doigts</p>
+        <p class="chip-cmd" id="chip-SCROLL" style="font-size: 10px; color: var(--color-text-secondary); margin: 3px 0 0; letter-spacing: 0.08em;">Volume —</p>
+      </div>
+      <div class="gesture-chip" data-key="VALIDER" style="background: var(--color-background-secondary); border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-tertiary); padding: 0.625rem;">
+        <p style="font-size: 9px; letter-spacing: 0.15em; color: var(--color-text-tertiary); margin: 0 0 3px;">G05</p>
+        <p style="font-size: 12px; font-weight: 500; margin: 0;">Pouce levé</p>
+        <p class="chip-cmd" id="chip-VALIDER" style="font-size: 10px; color: var(--color-text-secondary); margin: 3px 0 0; letter-spacing: 0.08em;">Volume +</p>
+      </div>
+      <div class="gesture-chip" data-key="MODE" style="background: var(--color-background-secondary); border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-tertiary); padding: 0.625rem;">
+        <p style="font-size: 9px; letter-spacing: 0.15em; color: var(--color-text-tertiary); margin: 0 0 3px;">G06</p>
+        <p style="font-size: 12px; font-weight: 500; margin: 0;">Signe Rock</p>
+        <p class="chip-cmd" style="font-size: 10px; color: var(--color-text-secondary); margin: 3px 0 0; letter-spacing: 0.08em;">CHANGER MODE</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Panneau réponse IA (visible uniquement en mode IA) -->
+  <div id="ia-panel" style="display: none; margin-top: 1.25rem; background: var(--color-background-secondary); border-radius: var(--border-radius-lg); border: 0.5px solid #e11d48; padding: 1rem;">
+    <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
+      <div style="width: 6px; height: 6px; border-radius: 50%; background: #e11d48;"></div>
+      <p style="font-size: 9px; letter-spacing: 0.2em; color: var(--color-text-tertiary); margin: 0;">RÉPONSE JARVIS</p>
+      <span id="ia-loading" style="display: none; font-size: 9px; color: var(--color-text-tertiary); letter-spacing: 0.12em; margin-left: auto;">TRAITEMENT...</span>
+    </div>
+    <p id="ia-response" style="font-size: 13px; line-height: 1.65; margin: 0; transition: opacity 0.2s;">En attente d'un geste...</p>
+  </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+
+<script>
+// ── Gestes ──────────────────────────────────────────────────────────────────
+const GESTURES = {
+  STOP:         { name: 'Paume ouverte',  sub: '5 doigts étendus',       cmd: 'STOP / PAUSE' },
+  SÉLECTIONNER: { name: 'Poing fermé',    sub: 'Tous les doigts fermés', cmd: 'SÉLECTIONNER' },
+  NAVIGUER:     { name: 'Index levé',     sub: 'Index seul étendu',      cmd: 'NAVIGUER' },
+  SCROLL:       { name: 'Deux doigts',    sub: 'Index + Majeur',         cmd: 'SCROLL' },
+  VALIDER:      { name: 'Pouce levé',     sub: 'Pouce seul étendu',      cmd: 'VALIDER' },
+  MODE:         { name: 'Signe Rock',     sub: 'Index + Auriculaire',    cmd: 'CHANGER MODE' },
+};
+
+// ── Modes et actions ─────────────────────────────────────────────────────────
+const MODES = [
+  { key: 'MEDIA', color: '#22c55e' },
+  { key: 'PC',    color: '#f59e0b' },
+  { key: 'IA',    color: '#e11d48' },
+];
+
+const MODE_ACTIONS = {
+  MEDIA: {
+    STOP:         'Pause / Play',
+    NAVIGUER:     'Suivant →',
+    SÉLECTIONNER: '← Précédent',
+    VALIDER:      'Volume +',
+    SCROLL:       'Volume —',
+  },
+  PC: {
+    STOP:         'Bureau (Win+D)',
+    NAVIGUER:     'Alt+Tab',
+    SÉLECTIONNER: 'Fermer (Alt+F4)',
+    VALIDER:      'Menu Démarrer',
+    SCROLL:       'Vue tâches (Win+Tab)',
+  },
+  IA: {
+    STOP:         'Annuler',
+    NAVIGUER:     'Options disponibles',
+    SÉLECTIONNER: 'Résumer',
+    VALIDER:      'Confirmer',
+    SCROLL:       'Nouvelles idées',
+  },
+};
+
+// ── State ────────────────────────────────────────────────────────────────────
+const HAND_COLORS = [
+  { stroke: 'rgba(59,130,246,0.55)',  dot: 'rgba(96,165,250,0.9)',  cursor: '#3b82f6' },
+  { stroke: 'rgba(168,85,247,0.55)', dot: 'rgba(192,132,252,0.9)', cursor: '#a855f7' },
+];
+
+let cameraActive = false, mpCamera = null, handsModel = null;
+const video  = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const ctx    = canvas.getContext('2d');
+let currentGesture = [null, null];
+let activeModeIdx  = 0;
+let lastTrigger    = { key: null, ts: 0 };
+const COOLDOWN     = 1500; // ms entre deux déclenchements du même geste
+
+// ── Helpers doigts ───────────────────────────────────────────────────────────
+function getFingers(lm) {
+  return [
+    Math.abs(lm[4].x - lm[5].x) > 0.07,
+    lm[8].y  < lm[6].y,
+    lm[12].y < lm[10].y,
+    lm[16].y < lm[14].y,
+    lm[20].y < lm[18].y,
+  ];
+}
+
+function classify(lm) {
+  const [th, ix, mi, ri, pi] = getFingers(lm);
+  if (ix && mi && ri && pi)            return 'STOP';
+  if (!ix && !mi && !ri && !pi && !th) return 'SÉLECTIONNER';
+  if (ix && !mi && !ri && !pi)         return 'NAVIGUER';
+  if (ix && mi && !ri && !pi)          return 'SCROLL';
+  if (th && !ix && !mi && !ri && !pi)  return 'VALIDER';
+  if (ix && !mi && !ri && pi)          return 'MODE';
+  return null;
+}
+
+function setFingers(lm, handIdx) {
+  const prefix = handIdx === 0 ? 'f' : 'h2f';
+  getFingers(lm).forEach((on, i) => {
+    const el = document.getElementById(prefix + i);
+    if (el) el.classList.toggle('active', on);
+  });
+}
+
+// ── Curseur main libre ────────────────────────────────────────────────────────
+function drawCursor(lm, handIdx) {
+  const x = lm[8].x * canvas.width;
+  const y = lm[8].y * canvas.height;
+  const isPointing = classify(lm) === 'NAVIGUER';
+  const color = HAND_COLORS[handIdx].cursor;
+
+  ctx.save();
+  ctx.globalAlpha  = isPointing ? 1 : 0.4;
+  ctx.strokeStyle  = color;
+  ctx.lineWidth    = 2;
+  ctx.beginPath();
+  ctx.arc(x, y, isPointing ? 11 : 5, 0, Math.PI * 2);
+  ctx.stroke();
+
+  if (isPointing) {
+    const arm = 18;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x - arm, y); ctx.lineTo(x + arm, y);
+    ctx.moveTo(x, y - arm); ctx.lineTo(x, y + arm);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ── Système de modes ──────────────────────────────────────────────────────────
+function cycleMode() {
+  activeModeIdx = (activeModeIdx + 1) % MODES.length;
+  const m = MODES[activeModeIdx];
+
+  const chip = document.getElementById('mode-chip');
+  chip.textContent  = m.key;
+  chip.style.color  = m.color;
+  chip.style.borderColor = m.color;
+  chip.classList.add('mode-flash');
+  setTimeout(() => chip.classList.remove('mode-flash'), 300);
+
+  const libLabel = document.getElementById('lib-mode-label');
+  libLabel.textContent = 'MODE ' + m.key;
+  libLabel.style.color = m.color;
+
+  // Mise à jour des labels dans la bibliothèque de gestes
+  const actions = MODE_ACTIONS[m.key];
+  Object.entries(actions).forEach(([gesture, label]) => {
+    const el = document.getElementById('chip-' + gesture);
+    if (el) el.textContent = label;
+  });
+
+  // Panneau IA visible seulement en mode IA
+  document.getElementById('ia-panel').style.display = m.key === 'IA' ? 'block' : 'none';
+}
+
+// ── Envoi de commandes ────────────────────────────────────────────────────────
+async function triggerGesture(key) {
+  const now = Date.now();
+  if (key === lastTrigger.key && now - lastTrigger.ts < COOLDOWN) return;
+  lastTrigger = { key, ts: now };
+
+  const mode = MODES[activeModeIdx].key;
+
+  if (mode === 'IA') {
+    const panel = document.getElementById('ia-panel');
+    const resp  = document.getElementById('ia-response');
+    const load  = document.getElementById('ia-loading');
+    panel.style.display = 'block';
+    load.style.display  = 'inline';
+    resp.style.opacity  = '0.35';
+    try {
+      const r    = await fetch('http://localhost:5678/webhook/jarvis', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ gesture: key, mode }),
+      });
+      const data = await r.json();
+      resp.textContent = data.response ?? 'Pas de réponse.';
+    } catch {
+      resp.textContent = 'Erreur : n8n inaccessible (port 5678). Vérifie que le stack est démarré.';
+    } finally {
+      load.style.display = 'none';
+      resp.style.opacity = '1';
+    }
+  } else {
+    // MEDIA ou PC → agent PowerShell local
+    fetch('http://localhost:9999/gesture', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ gesture: key, mode }),
+    }).catch(() => {});
+  }
+}
+
+// ── UI ────────────────────────────────────────────────────────────────────────
+function resetHandUI(handIdx) {
+  const ns = handIdx === 0 ? '' : '2';
+  document.getElementById(`g${ns}-name`).textContent = '—';
+  document.getElementById(`g${ns}-sub`).textContent  = 'Aucune main';
+  document.getElementById(`g${ns}-cmd`).textContent  = '—';
+  const prefix = handIdx === 0 ? 'f' : 'h2f';
+  for (let i = 0; i < 5; i++) {
+    const el = document.getElementById(prefix + i);
+    if (el) el.classList.remove('active');
+  }
+  currentGesture[handIdx] = null;
+}
+
+function resetUI() {
+  resetHandUI(0);
+  resetHandUI(1);
+  document.querySelectorAll('.gesture-chip').forEach(c => c.classList.remove('active-chip'));
+}
+
+// ── MediaPipe onResults ───────────────────────────────────────────────────────
+function onResults(results) {
+  canvas.width  = video.videoWidth  || 640;
+  canvas.height = video.videoHeight || 480;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const count = results.multiHandLandmarks?.length ?? 0;
+
+  if (count > 0) {
+    results.multiHandLandmarks.forEach((lm, idx) => {
+      const col = HAND_COLORS[idx] ?? HAND_COLORS[1];
+
+      if (window.drawConnectors && window.HAND_CONNECTIONS) {
+        drawConnectors(ctx, lm, HAND_CONNECTIONS, { color: col.stroke, lineWidth: 2 });
+        drawLandmarks(ctx, lm, { color: col.dot, lineWidth: 1, radius: 4 });
+      }
+
+      drawCursor(lm, idx);
+      setFingers(lm, idx);
+
+      const key = classify(lm);
+      const ns  = idx === 0 ? '' : '2';
+      const modeActions = MODE_ACTIONS[MODES[activeModeIdx].key];
+
+      if (key !== currentGesture[idx]) {
+        currentGesture[idx] = key;
+        const g = key ? GESTURES[key] : null;
+        document.getElementById(`g${ns}-name`).textContent = g ? g.name : '—';
+        document.getElementById(`g${ns}-sub`).textContent  = g ? g.sub  : 'Geste non reconnu';
+        document.getElementById(`g${ns}-cmd`).textContent  = g ? (modeActions[key] ?? g.cmd) : '—';
+
+        if (idx === 0) {
+          document.querySelectorAll('.gesture-chip').forEach(c => {
+            c.classList.toggle('active-chip', !!key && c.dataset.key === key);
+          });
+
+          if (key === 'MODE') {
+            cycleMode();
+          } else if (key) {
+            triggerGesture(key);
+          }
+        }
+      }
+    });
+
+    if (count < 2 && currentGesture[1] !== null) resetHandUI(1);
+
+  } else {
+    resetUI();
+  }
+}
+
+// ── Caméra ────────────────────────────────────────────────────────────────────
+async function toggleCamera() {
+  const btn    = document.getElementById('cam-btn');
+  const dot    = document.getElementById('dot');
+  const status = document.getElementById('sys-status');
+  const noCam  = document.getElementById('no-cam');
+
+  if (cameraActive) {
+    if (mpCamera) mpCamera.stop();
+    video.srcObject     = null;
+    cameraActive        = false;
+    btn.textContent     = 'ACTIVER CAMÉRA ↗';
+    dot.style.background   = 'var(--color-border-secondary)';
+    status.textContent  = 'HORS LIGNE';
+    noCam.style.display = 'flex';
+    resetUI();
+    return;
+  }
+
+  btn.textContent     = 'CONNEXION...';
+  btn.disabled        = true;
+  dot.style.background   = '#f59e0b';
+  status.textContent  = 'CONNEXION';
+
+  try {
+    if (!handsModel) {
+      handsModel = new Hands({
+        locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
+      });
+      handsModel.setOptions({
+        maxNumHands:            2,
+        modelComplexity:        1,
+        minDetectionConfidence: 0.65,
+        minTrackingConfidence:  0.5,
+      });
+      handsModel.onResults(onResults);
+    }
+
+    mpCamera = new Camera(video, {
+      onFrame: async () => { await handsModel.send({ image: video }); },
+      width: 640, height: 480,
+    });
+
+    await mpCamera.start();
+    cameraActive        = true;
+    btn.textContent     = 'DÉSACTIVER CAMÉRA';
+    btn.disabled        = false;
+    dot.style.background   = '#22c55e';
+    status.textContent  = 'EN LIGNE';
+    noCam.style.display = 'none';
+  } catch (e) {
+    btn.textContent     = 'ACTIVER CAMÉRA ↗';
+    btn.disabled        = false;
+    dot.style.background   = '#ef4444';
+    status.textContent  = 'ERREUR CAMÉRA';
+    console.error(e);
+  }
+}
+</script>

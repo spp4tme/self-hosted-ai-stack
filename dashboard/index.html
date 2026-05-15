@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>JARVIS — Stack IA</title>
+<style>
+:root {
+  --neon:      #00ff88;
+  --neon-dim:  rgba(0,255,136,0.35);
+  --neon-glow: rgba(0,255,136,0.12);
+  --bg:        #060d14;
+  --bg-side:   rgba(4,10,20,0.97);
+  --bg-card:   rgba(8,18,32,0.85);
+  --border:    rgba(0,255,136,0.13);
+  --border-hi: rgba(0,255,136,0.55);
+  --text:      #c0d8c8;
+  --text-dim:  #3a5040;
+  --red:       #ff3355;
+  --font:      'Courier New', 'Consolas', monospace;
+  --sidebar:   240px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  background-image:
+    linear-gradient(var(--neon-glow) 1px, transparent 1px),
+    linear-gradient(90deg, var(--neon-glow) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+/* Scanlines */
+body::after {
+  content: '';
+  position: fixed; inset: 0;
+  background: repeating-linear-gradient(0deg,
+    transparent, transparent 2px,
+    rgba(0,0,0,0.04) 2px, rgba(0,0,0,0.04) 4px);
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ── LAYOUT ─────────────────────────────────────────── */
+#shell {
+  display: flex;
+  height: 100vh;
+}
+
+/* ── SIDEBAR ─────────────────────────────────────────── */
+#sidebar {
+  width: var(--sidebar);
+  min-width: var(--sidebar);
+  background: var(--bg-side);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+/* Logo */
+#logo {
+  padding: 22px 0 18px;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+#logo-title {
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: 6px;
+  color: var(--neon);
+  text-shadow: 0 0 18px var(--neon), 0 0 40px var(--neon-dim);
+}
+#logo-sub {
+  font-size: 8px;
+  letter-spacing: 3px;
+  color: var(--text-dim);
+  margin-top: 5px;
+}
+
+/* Section headers */
+.sect {
+  font-size: 8px;
+  letter-spacing: 3px;
+  color: var(--text-dim);
+  padding: 16px 16px 6px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+/* Service buttons */
+.svc {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 16px;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  border-left: 2px solid transparent;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 12.5px;
+  width: 100%;
+  text-align: left;
+  transition: background 0.18s, border-color 0.18s, color 0.18s;
+  flex-shrink: 0;
+}
+.svc:hover {
+  background: rgba(0,255,136,0.06);
+  border-left-color: var(--neon-dim);
+  color: #e8f8f0;
+}
+.svc.active {
+  background: rgba(0,255,136,0.09);
+  border-left-color: var(--neon);
+  color: var(--neon);
+}
+.svc-icon { font-size: 14px; width: 18px; text-align: center; flex-shrink: 0; }
+.svc-name { flex: 1; }
+
+/* Status dot */
+.dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: #1a2a22;
+  flex-shrink: 0;
+  transition: background 0.4s, box-shadow 0.4s;
+}
+.dot.up   { background: var(--neon); box-shadow: 0 0 8px var(--neon); animation: pulse-dot 2s infinite; }
+.dot.down { background: var(--red);  box-shadow: 0 0 8px var(--red); }
+
+@keyframes pulse-dot {
+  0%,100% { opacity: 1; }
+  50%      { opacity: 0.55; }
+}
+
+.divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 6px 12px;
+  flex-shrink: 0;
+}
+
+/* ── MAIN ────────────────────────────────────────────── */
+#main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  position: relative;
+}
+
+/* Top bar */
+#topbar {
+  height: 38px;
+  background: rgba(4,10,20,0.95);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 18px;
+  gap: 14px;
+  flex-shrink: 0;
+}
+#tb-name {
+  font-size: 11px;
+  letter-spacing: 3px;
+  color: var(--neon);
+  min-width: 120px;
+}
+#tb-url {
+  font-size: 10px;
+  color: var(--text-dim);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tb-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-family: var(--font);
+  font-size: 10px;
+  letter-spacing: 1px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.tb-btn:hover { border-color: var(--neon); color: var(--neon); }
+
+/* Iframe zone */
+#iframe-wrap {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+#frame {
+  width: 100%; height: 100%;
+  border: none;
+  background: #000;
+  display: none;
+}
+
+/* Welcome screen */
+#welcome {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 20px;
+}
+#welcome-title {
+  font-size: 64px;
+  font-weight: 900;
+  letter-spacing: 16px;
+  color: var(--neon);
+  text-shadow: 0 0 40px var(--neon), 0 0 80px var(--neon-dim), 0 0 120px rgba(0,255,136,0.08);
+  animation: flicker 6s infinite;
+}
+#welcome-sub {
+  font-size: 10px;
+  letter-spacing: 5px;
+  color: var(--text-dim);
+}
+#welcome-hint {
+  font-size: 10px;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  padding: 8px 20px;
+  letter-spacing: 2px;
+  animation: blink-border 3s infinite;
+}
+
+/* Corner brackets on welcome */
+#welcome::before, #welcome::after,
+#iframe-wrap::before, #iframe-wrap::after {
+  content: '';
+  position: absolute;
+  width: 24px; height: 24px;
+  border-color: var(--neon-dim);
+  border-style: solid;
+  pointer-events: none;
+  z-index: 2;
+}
+#welcome::before, #iframe-wrap::before {
+  top: 14px; left: 14px;
+  border-width: 2px 0 0 2px;
+}
+#welcome::after, #iframe-wrap::after {
+  bottom: 14px; right: 14px;
+  border-width: 0 2px 2px 0;
+}
+
+/* Loader spinner */
+#loader {
+  position: absolute; inset: 0;
+  display: none;
+  align-items: center; justify-content: center;
+  background: var(--bg);
+  z-index: 5;
+}
+.spinner {
+  width: 40px; height: 40px;
+  border: 2px solid var(--border);
+  border-top-color: var(--neon);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  box-shadow: 0 0 16px var(--neon-dim);
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Status bar */
+#statusbar {
+  height: 26px;
+  background: rgba(4,10,20,0.95);
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  color: var(--text-dim);
+  gap: 24px;
+  flex-shrink: 0;
+}
+#sb-status { color: var(--neon); }
+#sb-clock  { margin-left: auto; color: var(--neon-dim); }
+
+/* Animations */
+@keyframes flicker {
+  0%,96%,100% { opacity: 1; }
+  97%          { opacity: 0.75; }
+  98%          { opacity: 1; }
+  99%          { opacity: 0.85; }
+}
+@keyframes blink-border {
+  0%,100% { border-color: var(--border); }
+  50%     { border-color: var(--neon-dim); }
+}
+</style>
+</head>
+<body>
+<div id="shell">
+
+  <!-- ── SIDEBAR ── -->
+  <nav id="sidebar">
+    <div id="logo">
+      <div id="logo-title">JARVIS</div>
+      <div id="logo-sub">STACK IA · SELF-HOSTED</div>
+    </div>
+
+    <div class="sect">IA &amp; LLM</div>
+    <button class="svc" data-url="https://webui.local"    data-name="OPEN WEBUI"  onclick="load(this)"><span class="svc-icon">💬</span><span class="svc-name">Open WebUI</span><span class="dot" data-ping="https://webui.local"></span></button>
+    <button class="svc" data-url="https://litellm.local"  data-name="LITELLM"     onclick="load(this)"><span class="svc-icon">⇄</span><span class="svc-name">LiteLLM</span><span class="dot" data-ping="https://litellm.local"></span></button>
+    <button class="svc" data-url="https://langfuse.local" data-name="LANGFUSE"    onclick="load(this)"><span class="svc-icon">📊</span><span class="svc-name">Langfuse</span><span class="dot" data-ping="https://langfuse.local"></span></button>
+
+    <hr class="divider">
+    <div class="sect">Workflows &amp; Données</div>
+    <button class="svc" data-url="https://n8n.local"      data-name="N8N"         onclick="load(this)"><span class="svc-icon">⚙</span><span class="svc-name">n8n</span><span class="dot" data-ping="https://n8n.local"></span></button>
+    <button class="svc" data-url="https://searxng.local"  data-name="SEARXNG"     onclick="load(this)"><span class="svc-icon">🔍</span><span class="svc-name">SearXNG</span><span class="dot" data-ping="https://searxng.local"></span></button>
+    <button class="svc" data-url="https://qdrant.local"   data-name="QDRANT"      onclick="load(this)"><span class="svc-icon">🗄</span><span class="svc-name">Qdrant</span><span class="dot" data-ping="https://qdrant.local"></span></button>
+
+    <hr class="divider">
+    <div class="sect">Monitoring</div>
+    <button class="svc" data-url="https://grafana.local"    data-name="GRAFANA"    onclick="load(this)"><span class="svc-icon">📈</span><span class="svc-name">Grafana</span><span class="dot" data-ping="https://grafana.local"></span></button>
+    <button class="svc" data-url="https://prometheus.local" data-name="PROMETHEUS" onclick="load(this)"><span class="svc-icon">🔥</span><span class="svc-name">Prometheus</span><span class="dot" data-ping="https://prometheus.local"></span></button>
+
+    <hr class="divider">
+    <div class="sect">Création &amp; Audio</div>
+    <button class="svc" data-url="https://comfyui.local"  data-name="COMFYUI"    onclick="load(this)"><span class="svc-icon">🎨</span><span class="svc-name">ComfyUI</span><span class="dot" data-ping="https://comfyui.local"></span></button>
+    <button class="svc" data-url="https://whisper.local"  data-name="WHISPER"    onclick="load(this)"><span class="svc-icon">🎙</span><span class="svc-name">Whisper STT</span><span class="dot" data-ping="https://whisper.local"></span></button>
+
+    <hr class="divider">
+    <div class="sect">Système</div>
+    <button class="svc" data-url="https://authentik.local" data-name="AUTHENTIK"  onclick="load(this)"><span class="svc-icon">🛡</span><span class="svc-name">Authentik</span><span class="dot" data-ping="https://authentik.local"></span></button>
+  </nav>
+
+  <!-- ── MAIN ── -->
+  <div id="main">
+    <div id="topbar">
+      <span id="tb-name">— SELECT A SERVICE</span>
+      <span id="tb-url"></span>
+      <button class="tb-btn" onclick="openNew()">↗ NOUVEL ONGLET</button>
+      <button class="tb-btn" onclick="reloadFrame()">↺ RECHARGER</button>
+    </div>
+
+    <div id="iframe-wrap">
+      <div id="welcome">
+        <div id="welcome-title">JARVIS</div>
+        <div id="welcome-sub">SYSTÈME OPÉRATIONNEL</div>
+        <div id="welcome-hint">← SÉLECTIONNE UN SERVICE</div>
+      </div>
+      <div id="loader"><div class="spinner"></div></div>
+      <iframe id="frame" sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals allow-downloads"></iframe>
+    </div>
+
+    <div id="statusbar">
+      <span id="sb-status">● INITIALISATION...</span>
+      <span>·</span>
+      <span id="sb-service">AUCUN SERVICE ACTIF</span>
+      <span id="sb-clock"></span>
+    </div>
+  </div>
+</div>
+
+<script>
+const frame   = document.getElementById('frame');
+const welcome = document.getElementById('welcome');
+const loader  = document.getElementById('loader');
+let   current = null;
+
+function load(btn) {
+  const url  = btn.dataset.url;
+  const name = btn.dataset.name;
+
+  document.querySelectorAll('.svc').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+
+  document.getElementById('tb-name').textContent    = name;
+  document.getElementById('tb-url').textContent     = url;
+  document.getElementById('sb-service').textContent = name + ' · ' + url;
+  current = url;
+
+  welcome.style.display = 'none';
+  frame.style.display   = 'none';
+  loader.style.display  = 'flex';
+
+  frame.onload = () => {
+    loader.style.display = 'none';
+    frame.style.display  = 'block';
+  };
+  frame.src = url;
+}
+
+function openNew()    { if (current) window.open(current, '_blank'); }
+function reloadFrame(){ if (current) { frame.src = current; } }
+
+/* ── Clock ── */
+function tick() {
+  const n = new Date();
+  document.getElementById('sb-clock').textContent =
+    n.toLocaleDateString('fr-FR') + '  ' + n.toLocaleTimeString('fr-FR');
+}
+setInterval(tick, 1000); tick();
+
+/* ── Status checks ── */
+async function ping() {
+  const dots = document.querySelectorAll('.dot[data-ping]');
+  let up = 0;
+  const checks = [...dots].map(async dot => {
+    const url = dot.getAttribute('data-ping');
+    try {
+      await fetch(url, { mode: 'no-cors', cache: 'no-store',
+                         signal: AbortSignal.timeout(3000) });
+      dot.classList.replace('down', 'up');
+      if (!dot.classList.contains('up')) dot.classList.add('up');
+      up++;
+    } catch {
+      dot.classList.remove('up');
+      dot.classList.add('down');
+    }
+  });
+  await Promise.all(checks);
+  const total = dots.length;
+  document.getElementById('sb-status').textContent =
+    `● ${up}/${total} SERVICES EN LIGNE`;
+  document.getElementById('sb-status').style.color =
+    up === total ? 'var(--neon)' : up > 0 ? '#ffaa00' : 'var(--red)';
+}
+ping();
+setInterval(ping, 30000);
+</script>
+</body>
+</html>

@@ -1,0 +1,140 @@
+pageInfo:
+  title: "JARVIS — Stack IA"
+  description: "Self-hosted AI Dashboard"
+  navLinks: []
+  footerText: "JARVIS · Stack IA Self-Hosted"
+
+appConfig:
+  theme: night
+  layout: auto
+  iconSize: medium
+  language: fr
+  startingView: workspace
+  defaultOpeningMethod: workspace
+  statusCheck: true
+  statusCheckInterval: 30
+  disableUpdateChecks: true
+  disableServiceWorker: false
+  preventWriteToDisk: false
+  webSearch:
+    searchEngine: custom
+    customSearchEngine: "https://searxng.local/search?q="
+    openingMethod: workspace
+  customCss: |
+    :root {
+      --primary: #00e676;
+      --background: #0d1117;
+      --background-darker: #070b10;
+      --curve-factor: 10px;
+      --item-text-color: #e0e0e0;
+      --item-sub-heading-color: #888;
+    }
+    .home .workspace-area { background: #0d1117; }
+    .section-title { color: #00e676 !important; }
+    .tile-title { font-weight: 600; }
+
+sections:
+  - name: "IA & LLM"
+    icon: "fas fa-brain"
+    displayData:
+      collapsed: false
+      rows: 1
+    items:
+      - title: "Open WebUI"
+        description: "Chat, modèles Ollama, RAG"
+        url: "https://webui.local"
+        icon: "fas fa-comments"
+        statusCheck: true
+        statusCheckUrl: "http://open-webui:8080"
+        displayData:
+          openingMethod: workspace
+
+      - title: "LiteLLM"
+        description: "Proxy unifié — gestion des LLMs"
+        url: "https://litellm.local"
+        icon: "fas fa-exchange-alt"
+        statusCheck: true
+        statusCheckUrl: "http://litellm:4000"
+        displayData:
+          openingMethod: workspace
+
+      - title: "Langfuse"
+        description: "Observabilité & traces LLM"
+        url: "https://langfuse.local"
+        icon: "fas fa-chart-bar"
+        statusCheck: true
+        statusCheckUrl: "http://langfuse:3000"
+        displayData:
+          openingMethod: workspace
+
+  - name: "Workflows & Données"
+    icon: "fas fa-project-diagram"
+    displayData:
+      collapsed: false
+      rows: 1
+    items:
+      - title: "n8n"
+        description: "Automatisation & workflows IA"
+        url: "https://n8n.local"
+        icon: "fas fa-sitemap"
+        statusCheck: true
+        statusCheckUrl: "http://n8n:5678"
+        displayData:
+          openingMethod: workspace
+
+      - title: "SearXNG"
+        description: "Recherche web privée"
+        url: "https://searxng.local"
+        icon: "fas fa-search"
+        statusCheck: true
+        statusCheckUrl: "http://searxng:8080"
+        displayData:
+          openingMethod: workspace
+
+      - title: "Qdrant"
+        description: "Base vectorielle — mémoire IA"
+        url: "https://qdrant.local"
+        icon: "fas fa-database"
+        statusCheck: true
+        statusCheckUrl: "http://qdrant:6333"
+        displayData:
+          openingMethod: workspace
+
+  - name: "Monitoring"
+    icon: "fas fa-chart-line"
+    displayData:
+      collapsed: false
+      rows: 1
+    items:
+      - title: "Grafana"
+        description: "Dashboards & visualisation"
+        url: "https://grafana.local"
+        icon: "fas fa-tachometer-alt"
+        statusCheck: true
+        statusCheckUrl: "http://grafana:3000"
+        displayData:
+          openingMethod: workspace
+
+      - title: "Prometheus"
+        description: "Métriques & alertes"
+        url: "https://prometheus.local"
+        icon: "fas fa-fire"
+        statusCheck: true
+        statusCheckUrl: "http://prometheus:9090"
+        displayData:
+          openingMethod: workspace
+
+  - name: "Système"
+    icon: "fas fa-shield-alt"
+    displayData:
+      collapsed: false
+      rows: 1
+    items:
+      - title: "Authentik"
+        description: "SSO & gestion des accès"
+        url: "https://authentik.local"
+        icon: "fas fa-user-shield"
+        statusCheck: true
+        statusCheckUrl: "http://authentik:9000"
+        displayData:
+          openingMethod: workspace

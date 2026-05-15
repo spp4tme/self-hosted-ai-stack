@@ -1,0 +1,15 @@
+{
+  "cooldown": 1.5,
+  "hold_duration": 2.0,
+  "tts_enabled": true,
+  "notifications_enabled": true,
+  "camera_index": 0,
+  "preview_window": true,
+  "auto_mode": true,
+  "n8n_url": "http://localhost:5678",
+  "ollama_url": "http://localhost:11434",
+  "default_model": "llama3.2",
+  "vision_model": "llava",
+  "embed_model": "nomic-embed-text",
+  "default_mode": 0
+}

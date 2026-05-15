@@ -1,0 +1,2 @@
+# Dépose ici tes documents à indexer (PDF, DOCX, TXT, MD)
+# Lance ensuite : python scripts/ingest_docs.py

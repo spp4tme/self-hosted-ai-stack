@@ -1,0 +1,49 @@
+{
+  "name": "Jarvis — Mode IA",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "jarvis",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "node-webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 300],
+      "webhookId": "jarvis-ia"
+    },
+    {
+      "parameters": {
+        "jsCode": "const prompts = {\n  'STOP':         'Stop. Annule la dernière action et donne un point de situation immédiat.',\n  'NAVIGUER':     'Quelles options ai-je disponibles maintenant ? Liste-les brièvement.',\n  'SÉLECTIONNER': 'Résume ma situation actuelle en 2 phrases maximum.',\n  'VALIDER':      'Confirme et valide ce que nous venons de faire. Donne un retour positif.',\n  'SCROLL':       'Propose-moi 3 nouvelles idées ou pistes à explorer sur ce que je fais.',\n};\nconst gesture = $input.first().json.body.gesture;\nreturn [{ json: { prompt: prompts[gesture] ?? 'Aide-moi.', gesture } }];"
+      },
+      "id": "node-map",
+      "name": "Geste → Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Modifie 'model' si tu utilises un autre modèle Ollama\nconst MODEL = 'llama3.2';\nconst item  = $input.first().json;\n\nconst res = await fetch('http://host.docker.internal:11434/api/chat', {\n  method:  'POST',\n  headers: { 'Content-Type': 'application/json' },\n  body: JSON.stringify({\n    model: MODEL,\n    messages: [\n      { role: 'system', content: 'Tu es Jarvis, un assistant IA local. Réponds en 2 phrases maximum, en français, de façon directe et utile.' },\n      { role: 'user',   content: item.prompt }\n    ],\n    stream: false\n  })\n});\n\nconst data = await res.json();\nreturn [{ json: {\n  response: data.message?.content ?? data.response ?? 'Pas de réponse.',\n  gesture:  item.gesture,\n  model:    MODEL\n}}];"
+      },
+      "id": "node-ollama",
+      "name": "Ollama",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [640, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{ "node": "Geste → Prompt", "type": "main", "index": 0 }]]
+    },
+    "Geste → Prompt": {
+      "main": [[{ "node": "Ollama", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": true,
+  "settings": { "executionOrder": "v1" }
+}

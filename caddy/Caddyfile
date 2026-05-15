@@ -1,0 +1,88 @@
+(sso) {
+  forward_auth authentik:9000 {
+    uri /outpost.goauthentik.io/auth/caddy
+    copy_headers X-Authentik-Username X-Authentik-Groups X-Authentik-Email
+    @goauthentik_proxy_response status 401 302
+    handle_response @goauthentik_proxy_response {
+      redir * https://authentik.local/outpost.goauthentik.io/start?rd={scheme}://{host}{uri}
+    }
+  }
+}
+
+# Retire les headers qui bloquent l'embedding dans les iframes Dashy
+(allow_iframe) {
+  header -X-Frame-Options
+  header -Content-Security-Policy
+}
+
+dashboard.local {
+  tls /certs/cert.pem /certs/key.pem
+  root * /srv/dashboard
+  file_server
+}
+
+webui.local {
+  tls /certs/cert.pem /certs/key.pem
+  reverse_proxy open-webui:8080
+  import allow_iframe
+}
+
+litellm.local {
+  tls /certs/cert.pem /certs/key.pem
+  reverse_proxy litellm:4000
+  import allow_iframe
+}
+
+n8n.local {
+  tls /certs/cert.pem /certs/key.pem
+  reverse_proxy n8n:5678
+  import allow_iframe
+}
+
+searxng.local {
+  tls /certs/cert.pem /certs/key.pem
+  reverse_proxy searxng:8888
+  import allow_iframe
+}
+
+qdrant.local {
+  tls /certs/cert.pem /certs/key.pem
+  reverse_proxy qdrant:6333
+  import allow_iframe
+}
+
+langfuse.local {
+  tls /certs/cert.pem /certs/key.pem
+  reverse_proxy langfuse:3000
+  import allow_iframe
+}
+
+grafana.local {
+  tls /certs/cert.pem /certs/key.pem
+  reverse_proxy grafana:3000
+  import allow_iframe
+}
+
+prometheus.local {
+  tls /certs/cert.pem /certs/key.pem
+  reverse_proxy prometheus:9090
+  import allow_iframe
+}
+
+authentik.local {
+  tls /certs/cert.pem /certs/key.pem
+  reverse_proxy authentik:9000
+  import allow_iframe
+}
+
+comfyui.local {
+  tls /certs/cert.pem /certs/key.pem
+  reverse_proxy comfyui:8188
+  import allow_iframe
+}
+
+whisper.local {
+  tls /certs/cert.pem /certs/key.pem
+  reverse_proxy whisper:8000
+  import allow_iframe
+}

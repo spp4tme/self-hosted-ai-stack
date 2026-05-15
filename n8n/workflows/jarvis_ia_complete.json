@@ -1,0 +1,67 @@
+{
+  "name": "Jarvis IA — RAG + Entity Memory",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "jarvis",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-jarvis",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "jarvis-gesture-webhook"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const OLLAMA            = 'http://host.docker.internal:11434';\nconst QDRANT            = 'http://host.docker.internal:6333';\nconst SEARXNG           = 'http://host.docker.internal:8888';\nconst COLLECTION        = 'jarvis_memory';\nconst ENTITY_COLLECTION = 'jarvis_entities';\nconst DOCS_COLLECTION   = 'jarvis_docs';\nconst EMBED_MODEL       = 'nomic-embed-text';\nconst CHAT_MODEL        = 'llama3.2';\nconst TOP_K             = 3;\nconst SCORE_MEM         = 0.6;\nconst SCORE_ENT         = 0.5;\nconst SCORE_DOCS        = 0.55;\n\nasync function ollamaPost(path, body) {\n  const r = await fetch(`${OLLAMA}${path}`, {\n    method: 'POST', headers: { 'Content-Type': 'application/json' },\n    body: JSON.stringify(body),\n  });\n  if (!r.ok) throw new Error(`Ollama ${path} => ${r.status}`);\n  return r.json();\n}\n\nasync function qdrantReq(method, path, body) {\n  const opts = { method, headers: { 'Content-Type': 'application/json' } };\n  if (body) opts.body = JSON.stringify(body);\n  const r = await fetch(`${QDRANT}${path}`, opts);\n  if (!r.ok) throw new Error(`Qdrant ${method} ${path} => ${r.status}`);\n  return r.json();\n}\n\nasync function ensureCollection(name) {\n  try { const r = await fetch(`${QDRANT}/collections/${name}`); if (r.ok) return; } catch (_) {}\n  await qdrantReq('PUT', `/collections/${name}`, { vectors: { size: 768, distance: 'Cosine' } });\n}\n\nasync function getEmbedding(text) {\n  const d = await ollamaPost('/api/embeddings', { model: EMBED_MODEL, prompt: text });\n  return d.embedding;\n}\n\nasync function searchQdrant(collection, vector, limit, threshold) {\n  try {\n    const d = await qdrantReq('POST', `/collections/${collection}/points/search`, {\n      vector, limit, score_threshold: threshold, with_payload: true,\n    });\n    return d.result || [];\n  } catch (e) { console.log(`Qdrant search ${collection} failed:`, e.message); return []; }\n}\n\nasync function searchWeb(query) {\n  try {\n    const url = `${SEARXNG}/search?q=${encodeURIComponent(query)}&format=json&language=fr-FR`;\n    const r = await fetch(url, { signal: AbortSignal.timeout(8000) });\n    if (!r.ok) return [];\n    const d = await r.json();\n    return (d.results || []).slice(0, 3).map(x => ({ title: x.title || '', url: x.url || '', content: x.content || x.snippet || '' }));\n  } catch (e) { console.log('SearXNG failed:', e.message); return []; }\n}\n\n// ── Entity memory ─────────────────────────────────────────────────────────────\nasync function extractEntities(question, answer) {\n  try {\n    const prompt = `Extrait les faits concrets et réutilisables de cet échange.\nQ: ${question}\nR: ${answer}\n\nRetourne UNIQUEMENT un tableau JSON (5 max, ou [] si rien) :\n[{\"type\":\"preference|projet|tech|personne|fait\",\"name\":\"nom_court\",\"value\":\"la valeur\"}]`;\n    const d = await ollamaPost('/api/generate', {\n      model: CHAT_MODEL, prompt, stream: false, format: 'json',\n      options: { temperature: 0.1, num_predict: 200 },\n    });\n    const m = (d.response || '[]').match(/\\[[\\s\\S]*\\]/);\n    return m ? JSON.parse(m[0]) : [];\n  } catch (e) { console.log('Entity extraction failed:', e.message); return []; }\n}\n\nasync function storeEntities(entities) {\n  if (!entities || entities.length === 0) return 0;\n  await ensureCollection(ENTITY_COLLECTION);\n  let stored = 0;\n  for (const ent of entities) {\n    if (!ent.name || !ent.value) continue;\n    try {\n      const text = `${ent.type || 'fait'}: ${ent.name} = ${ent.value}`;\n      const emb  = await getEmbedding(text);\n      await qdrantReq('POST', `/collections/${ENTITY_COLLECTION}/points`, {\n        points: [{ id: Date.now() + Math.floor(Math.random() * 999), vector: emb,\n          payload: { entity_type: ent.type || 'fait', name: ent.name, value: ent.value, timestamp: new Date().toISOString() } }],\n      });\n      stored++;\n    } catch (e) { console.log('Entity store error:', e.message); }\n  }\n  return stored;\n}\n\n// ── Gesture → prompt ──────────────────────────────────────────────────────────\nconst gesturePrompts = {\n  STOP:     'Donne-moi un point de situation rapide.',\n  NAVIGATE: 'Fais une recherche sur les actualites du moment et dis-moi les points importants.',\n  SELECT:   'Fais un resume concis de notre conversation.',\n  VALIDATE: 'Confirme et resume la derniere action demandee.',\n  SCROLL:   'Propose-moi 3 nouvelles idees ou pistes de reflexion.',\n  MODE:     'Tu viens de passer en mode IA. Comment puis-je t aider ?',\n};\n\nconst systemPrompt = `Tu es Jarvis, un assistant IA personnel intégré à un système de contrôle gestuel.\nTu réponds en français, de façon concise (2-4 phrases max sauf si demandé autrement).\nTu as accès à la mémoire des échanges précédents et aux faits connus sur l'utilisateur.`;\n\n// ── Main ──────────────────────────────────────────────────────────────────────\nconst input   = items[0].json;\nconst gesture = (input.gesture || 'STOP').toUpperCase();\nconst mode    = (input.mode    || 'IA').toUpperCase();\nconst extra   = input.extra || '';\n\nconst userPrompt = gesturePrompts[gesture] || gesturePrompts.STOP;\nconst fullPrompt = extra ? `${userPrompt}\\n\\nContexte: ${extra}` : userPrompt;\n\nlet embedding = null, memoryHits = [], entityHits = [], docsHits = [], webResults = [];\nlet memStored = false, entStored = 0;\n\n// a) Embedding\ntry { embedding = await getEmbedding(fullPrompt); } catch (e) { console.log('Embed failed:', e.message); }\n\n// b) Memory + entity + docs search\nif (embedding) {\n  await ensureCollection(COLLECTION);\n  memoryHits = await searchQdrant(COLLECTION, embedding, TOP_K, SCORE_MEM);\n  entityHits = await searchQdrant(ENTITY_COLLECTION, embedding, 5, SCORE_ENT);\n  docsHits   = await searchQdrant(DOCS_COLLECTION,   embedding, 4, SCORE_DOCS);\n}\n\n// c) Web search (NAVIGATE only)\nif (gesture === 'NAVIGATE') webResults = await searchWeb(extra || 'actualites technologie IA');\n\n// d) Build messages\nconst messages = [{ role: 'system', content: systemPrompt }];\n\nif (entityHits.length > 0) {\n  messages.push({ role: 'system', content:\n    'Faits connus sur l utilisateur:\\n' +\n    entityHits.map(h => `${h.payload.entity_type}: ${h.payload.name} = ${h.payload.value}`).join('\\n')\n  });\n}\n\nif (memoryHits.length > 0) {\n  messages.push({ role: 'system', content:\n    'Echanges precedents pertinents:\\n' +\n    memoryHits.map(h => `Q: ${h.payload.question}\\nR: ${h.payload.answer}`).join('\\n---\\n')\n  });\n}\n\nif (docsHits.length > 0) {\n  messages.push({ role: 'system', content:\n    'Extraits de tes documents personnels (priorité haute) :\\n' +\n    docsHits.map(h => `[${h.payload.filename}]\\n${h.payload.text}`).join('\\n---\\n')\n  });\n}\n\nif (webResults.length > 0) {\n  messages.push({ role: 'system', content:\n    'Resultats web:\\n' +\n    webResults.map((r, i) => `[${i+1}] ${r.title}\\n${r.content}\\n${r.url}`).join('\\n---\\n')\n  });\n}\n\nmessages.push({ role: 'user', content: fullPrompt });\n\n// e) Ollama chat\nlet response = 'Désolée, je ne peux pas répondre pour le moment.';\ntry {\n  const d = await ollamaPost('/api/chat', { model: CHAT_MODEL, messages, stream: false, options: { temperature: 0.7, num_predict: 300 } });\n  response = d.message?.content || response;\n} catch (e) { response = `Erreur Ollama: ${e.message}`; }\n\n// f) Store Q+A\nif (embedding) {\n  try {\n    await qdrantReq('POST', `/collections/${COLLECTION}/points`, {\n      points: [{ id: Date.now(), vector: embedding, payload: { question: fullPrompt, answer: response, timestamp: new Date().toISOString() } }],\n    });\n    memStored = true;\n  } catch (e) { console.log('Memory store failed:', e.message); }\n}\n\n// g) Extract + store entities\nif (memStored) {\n  const entities = await extractEntities(fullPrompt, response);\n  entStored = await storeEntities(entities);\n}\n\nconst result = { response, gesture, mode, memory_stored: memStored, entities_stored: entStored, memory_hits: memoryHits.length, entity_hits: entityHits.length, doc_hits: docsHits.length };\nif (webResults.length > 0) result.sources = webResults.map(r => ({ title: r.title, url: r.url }));\n\nreturn [{ json: result }];"
+      },
+      "id": "rag-pipeline",
+      "name": "RAG Pipeline",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "RAG Pipeline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "jarvis-v3",
+  "id": "jarvis-rag-complete",
+  "tags": [
+    {
+      "name": "jarvis"
+    },
+    {
+      "name": "rag"
+    },
+    {
+      "name": "entity-memory"
+    }
+  ]
+}
