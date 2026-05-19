@@ -766,3 +766,4 @@ LiteLLM sur `:4000` expose une API **100% compatible OpenAI** — toute app supp
 ## Licence
 
 Usage personnel — tous droits réservés.
+"# IA-PERSO" 
